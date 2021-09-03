@@ -12,7 +12,7 @@ type RequestVoteReply struct {
 	VoteGranted bool
 }
 
-// RequestVote is the RPC sent by Candidate.
+// RequestVote is the RPC sent by CANDIDATE.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -24,7 +24,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	if args.Term > rf.currentTerm {
-		rf.role = Follower
+		rf.role = FOLLOWER
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 	}
@@ -62,7 +62,7 @@ type AppendEntriesReply struct {
 	NextTryIndex int
 }
 
-// AppendEntries is the RPC sent by Leader.
+// AppendEntries is the RPC sent by LEADER.
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -77,7 +77,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	defer rf.persist()
 	if args.Term > rf.currentTerm {
-		rf.role = Follower
+		rf.role = FOLLOWER
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 	}
@@ -137,7 +137,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	}
 
 	if args.Term > rf.currentTerm {
-		rf.role = Follower
+		rf.role = FOLLOWER
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 		rf.persist()

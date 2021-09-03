@@ -61,7 +61,7 @@ func (ck *Clerk) Get(key string) string {
 //
 // you can send an RPC with code like this:
 // ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
-func (ck *Clerk) PutAppend(key string, value string, op string) {
+func (ck *Clerk) putAppend(key string, value string, op string) {
 	args := PutAppendArgs{
 		Key:      key,
 		Value:    value,
@@ -83,8 +83,8 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 }
 
 func (ck *Clerk) Put(key string, value string) {
-	ck.PutAppend(key, value, "put")
+	ck.putAppend(key, value, "put")
 }
 func (ck *Clerk) Append(key string, value string) {
-	ck.PutAppend(key, value, "append")
+	ck.putAppend(key, value, "append")
 }

@@ -44,9 +44,9 @@ type ApplyMsg struct {
 type Role int
 
 const (
-	Follower Role = iota
-	Candidate
-	Leader
+	FOLLOWER Role = iota
+	CANDIDATE
+	LEADER
 )
 
 // Raft is the consensus module.
@@ -82,7 +82,7 @@ type Raft struct {
 func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	return rf.currentTerm, rf.role == Leader
+	return rf.currentTerm, rf.role == LEADER
 }
 
 // GetRaftStateSize returns the size of encoding Raft's
@@ -179,12 +179,12 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if !ok || rf.role != Candidate || rf.currentTerm != args.Term {
+	if !ok || rf.role != CANDIDATE || rf.currentTerm != args.Term {
 		return ok
 	}
 
 	if rf.currentTerm < reply.Term {
-		rf.role = Follower
+		rf.role = FOLLOWER
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
 		rf.persist()
@@ -195,7 +195,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		rf.voteCount++
 		if rf.voteCount > len(rf.peers)/2 {
 			// win the election!
-			rf.role = Leader
+			rf.role = LEADER
 			rf.persist()
 
 			rf.nextIndex = make([]int, len(rf.peers))
@@ -215,13 +215,13 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if !ok || rf.role != Leader || args.Term != rf.currentTerm {
+	if !ok || rf.role != LEADER || args.Term != rf.currentTerm {
 		return ok
 	}
 
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
-		rf.role = Follower
+		rf.role = FOLLOWER
 		rf.votedFor = -1
 		rf.persist()
 		return ok
@@ -277,13 +277,13 @@ func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if !ok || rf.role != Leader || args.Term != rf.currentTerm {
+	if !ok || rf.role != LEADER || args.Term != rf.currentTerm {
 		return ok
 	}
 
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
-		rf.role = Follower
+		rf.role = FOLLOWER
 		rf.votedFor = -1
 		rf.persist()
 		return ok
@@ -318,7 +318,7 @@ func (rf *Raft) broadcastRequestVote() {
 	rf.mu.Unlock()
 
 	for peer := range rf.peers {
-		if peer != rf.me && rf.role == Candidate {
+		if peer != rf.me && rf.role == CANDIDATE {
 			go rf.sendRequestVote(peer, args, &RequestVoteReply{})
 		}
 	}
@@ -332,7 +332,7 @@ func (rf *Raft) broadcastHeartbeat() {
 	snapshot := rf.persister.ReadSnapshot()
 
 	for peer := range rf.peers {
-		if peer != rf.me && rf.role == Leader {
+		if peer != rf.me && rf.role == LEADER {
 			if rf.nextIndex[peer] > baseIndex {
 				args := new(AppendEntriesArgs)
 				args.Term = rf.currentTerm
@@ -367,7 +367,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	index := -1
 	term := -1
-	isLeader := rf.role == Leader
+	isLeader := rf.role == LEADER
 
 	if isLeader {
 		term = rf.currentTerm
@@ -381,15 +381,15 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 func (rf *Raft) run() {
 	for {
 		switch rf.role {
-		case Follower:
+		case FOLLOWER:
 			select {
 			case <-rf.grantVoteCh:
 			case <-rf.heartbeatCh:
 			case <-time.After(time.Millisecond * time.Duration(rand.Intn(150)+150)):
-				rf.role = Candidate
+				rf.role = CANDIDATE
 				rf.persist()
 			}
-		case Candidate:
+		case CANDIDATE:
 			rf.mu.Lock()
 			rf.votedFor = rf.me
 			rf.voteCount = 1
@@ -401,11 +401,11 @@ func (rf *Raft) run() {
 
 			select {
 			case <-rf.heartbeatCh:
-				rf.role = Follower
+				rf.role = FOLLOWER
 			case <-rf.winElectionCh:
 			case <-time.After(time.Millisecond * time.Duration(rand.Intn(150)+150)):
 			}
-		case Leader:
+		case LEADER:
 			go rf.broadcastHeartbeat()
 			time.Sleep(50 * time.Millisecond)
 		}
@@ -420,7 +420,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
-	rf.role = Follower
+	rf.role = FOLLOWER
 	rf.voteCount = 0
 
 	rf.currentTerm = 0

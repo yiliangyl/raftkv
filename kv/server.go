@@ -98,7 +98,7 @@ func (kv *KVServer) appendEntryToLog(entry Op) Result {
 			return result
 		}
 		return Result{OK: false}
-	case <-time.After(250 * time.Millisecond):  // TODO: What is a better time duration?
+	case <-time.After(250 * time.Millisecond): // TODO: What is a better time duration?
 		return Result{OK: false}
 	}
 }

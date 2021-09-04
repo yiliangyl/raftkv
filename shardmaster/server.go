@@ -26,11 +26,14 @@ type Op struct {
 
 	// for JoinArgs
 	Servers map[int][]string // new GID -> servers mappings
+
 	// for LeaveArgs
 	GIDs []int
+
 	// for MoveArgs
 	Shard int
 	GID   int
+
 	// for QueryArgs
 	Num int // desired config number
 }

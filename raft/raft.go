@@ -425,7 +425,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.log = append(rf.log, LogEntry{Term: 0})
+	rf.log = append(rf.log, LogEntry{Index: 0, Term: 0})
 
 	rf.commitIndex = 0
 	rf.lastApplied = 0

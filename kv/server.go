@@ -188,7 +188,6 @@ func (kv *KVServer) isDuplicated(op Op) bool {
 // StartKVServer starts a KV server based on Raft.
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
 	labgob.Register(Op{})
-	labgob.Register(Result{})
 
 	kv := new(KVServer)
 	kv.me = me

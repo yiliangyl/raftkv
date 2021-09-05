@@ -41,7 +41,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.persist()
 }
 
-// Check if candidate's log is at least as new as the voter.
+// Check if candidate's log is at least as up-to-date as the voter.
 func (rf *Raft) isUpToDate(canTerm, canIndex int) bool {
 	index, term := rf.getLastLogIndex(), rf.getLastLogTerm()
 	return canTerm > term || (canTerm == term && canIndex >= index)

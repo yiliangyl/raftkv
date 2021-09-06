@@ -10,7 +10,7 @@ type Err string
 type PutAppendArgs struct {
 	Key     string
 	Value   string
-	Command string // "Put" or "Append"
+	Command string // "put" or "append"
 
 	ClientId  int64
 	RequestId int64

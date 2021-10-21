@@ -41,12 +41,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.persist()
 }
 
-// Check if candidate's log is at least as up-to-date as the voter.
-func (rf *Raft) isUpToDate(canTerm, canIndex int) bool {
-	index, term := rf.getLastLogIndex(), rf.getLastLogTerm()
-	return canTerm > term || (canTerm == term && canIndex >= index)
-}
-
 type AppendEntriesArgs struct {
 	Term         int
 	LeaderId     int
@@ -71,7 +65,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
-		reply.NextTryIndex = rf.getLastLogIndex() + 1
+		reply.NextTryIndex = rf.lastIndex() + 1
 		return
 	}
 
@@ -85,8 +79,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.heartbeatCh <- struct{}{}
 	reply.Term = rf.currentTerm
 
-	if args.PrevLogIndex > rf.getLastLogIndex() {
-		reply.NextTryIndex = rf.getLastLogIndex() + 1
+	if args.PrevLogIndex > rf.lastIndex() {
+		reply.NextTryIndex = rf.lastIndex() + 1
 		return
 	}
 
@@ -108,7 +102,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		if rf.commitIndex < args.LeaderCommit {
 			// update commitIndex and apply log
-			rf.commitIndex = min(args.LeaderCommit, rf.getLastLogIndex())
+			rf.commitIndex = min(args.LeaderCommit, rf.lastIndex())
 			go rf.applyLog()
 		}
 	}
@@ -150,7 +144,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		rf.trimLog(args.LastIncludedIndex, args.LastIncludedTerm)
 		rf.lastApplied = args.LastIncludedIndex
 		rf.commitIndex = args.LastIncludedIndex
-		rf.persister.SaveStateAndSnapshot(rf.getPersistentStates(), args.Data)
+		rf.persister.SaveStateAndSnapshot(rf.getPersist(), args.Data)
 
 		msg := ApplyMsg{UseSnapshot: true, Snapshot: args.Data}
 		rf.applyCh <- msg

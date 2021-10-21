@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"raftkv/labrpc"
 	"sync"
+	"time"
 )
 
 type Clerk struct {
@@ -13,8 +14,6 @@ type Clerk struct {
 
 	clientId  int64
 	requestId int64
-	// for requesting leader.
-	idx int
 }
 
 func nrand() int64 {
@@ -29,7 +28,6 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck.servers = servers
 	ck.clientId = nrand()
 	ck.requestId = 0
-	ck.idx = 0
 	return ck
 }
 
@@ -48,12 +46,15 @@ func (ck *Clerk) Get(key string) string {
 	ck.requestId++
 	ck.mu.Unlock()
 
-	for ; ; ck.idx = (ck.idx + 1) % len(ck.servers) {
-		var reply GetReply
-		ok := ck.servers[ck.idx].Call("KVServer.Get", &args, &reply)
-		if ok && !reply.WrongLeader {
-			return reply.Value
+	for {
+		for _, srv := range ck.servers {
+			var reply GetReply
+			ok := srv.Call("KVServer.Get", &args, &reply)
+			if ok && !reply.WrongLeader {
+				return reply.Value
+			}
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -73,12 +74,15 @@ func (ck *Clerk) putAppend(key string, value string, op string) {
 	ck.requestId++
 	ck.mu.Unlock()
 
-	for ; ; ck.idx = (ck.idx + 1) % len(ck.servers) {
-		var reply PutAppendReply
-		ok := ck.servers[ck.idx].Call("KVServer.PutAppend", &args, &reply)
-		if ok && !reply.WrongLeader {
-			return
+	for {
+		for _, srv := range ck.servers {
+			var reply PutAppendReply
+			ok := srv.Call("KVServer.PutAppend", &args, &reply)
+			if ok && !reply.WrongLeader {
+				return
+			}
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

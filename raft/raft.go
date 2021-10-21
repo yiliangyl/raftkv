@@ -91,11 +91,11 @@ func (rf *Raft) GetRaftStateSize() int {
 	return rf.persister.RaftStateSize()
 }
 
-func (rf *Raft) getLastLogIndex() int {
+func (rf *Raft) lastIndex() int {
 	return rf.log[len(rf.log)-1].Index
 }
 
-func (rf *Raft) getLastLogTerm() int {
+func (rf *Raft) lastTerm() int {
 	return rf.log[len(rf.log)-1].Term
 }
 
@@ -104,7 +104,7 @@ func (rf *Raft) getLastLogTerm() int {
 //
 // Persist when raft's persistent states are changed.
 func (rf *Raft) persist() {
-	data := rf.getPersistentStates()
+	data := rf.getPersist()
 	rf.persister.SaveRaftState(data)
 }
 
@@ -121,9 +121,9 @@ func (rf *Raft) readPersist(data []byte) {
 	dec.Decode(&rf.log)
 }
 
-// getPersistentStates returns the encoding Raft's persistent
+// getPersist returns the encoding Raft's persistent
 // states.
-func (rf *Raft) getPersistentStates() []byte {
+func (rf *Raft) getPersist() []byte {
 	buf := new(bytes.Buffer)
 	enc := labgob.NewEncoder(buf)
 	enc.Encode(rf.currentTerm)
@@ -139,7 +139,7 @@ func (rf *Raft) TakeSnapshot(snapshot []byte, index int) {
 	defer rf.mu.Unlock()
 
 	baseIndex := rf.log[0].Index
-	lastIndex := rf.getLastLogIndex()
+	lastIndex := rf.lastIndex()
 	if index <= baseIndex || index > lastIndex {
 		// can't trim log since index is invalid
 		return
@@ -152,7 +152,7 @@ func (rf *Raft) TakeSnapshot(snapshot []byte, index int) {
 	enc.Encode(rf.log[0].Term)
 	snapshot = append(buf.Bytes(), snapshot...)
 
-	rf.persister.SaveStateAndSnapshot(rf.getPersistentStates(), snapshot)
+	rf.persister.SaveStateAndSnapshot(rf.getPersist(), snapshot)
 }
 
 func (rf *Raft) recoverFromSnapshot(snapshot []byte) {
@@ -172,6 +172,12 @@ func (rf *Raft) recoverFromSnapshot(snapshot []byte) {
 
 	msg := ApplyMsg{UseSnapshot: true, Snapshot: snapshot}
 	rf.applyCh <- msg
+}
+
+// Check if candidate's log is at least as up-to-date as the voter.
+func (rf *Raft) isUpToDate(canTerm, canIndex int) bool {
+	index, term := rf.lastIndex(), rf.lastTerm()
+	return canTerm > term || (canTerm == term && canIndex >= index)
 }
 
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
@@ -200,7 +206,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 			rf.nextIndex = make([]int, len(rf.peers))
 			rf.matchIndex = make([]int, len(rf.peers))
-			idx := rf.getLastLogIndex() + 1
+			idx := rf.lastIndex() + 1
 			for i := range rf.nextIndex {
 				rf.nextIndex[i] = idx
 			}
@@ -233,11 +239,11 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 			rf.matchIndex[server] = rf.nextIndex[server] - 1
 		}
 	} else {
-		rf.nextIndex[server] = min(reply.NextTryIndex, rf.getLastLogIndex())
+		rf.nextIndex[server] = min(reply.NextTryIndex, rf.lastIndex())
 	}
 
 	baseIndex := rf.log[0].Index
-	for N := rf.getLastLogIndex(); N > rf.commitIndex && rf.log[N-baseIndex].Term == rf.currentTerm; N-- {
+	for N := rf.lastIndex(); N > rf.commitIndex && rf.log[N-baseIndex].Term == rf.currentTerm; N-- {
 		// find if there exists an N to update commitIndex
 		count := 1
 		for i := range rf.peers {
@@ -313,8 +319,8 @@ func (rf *Raft) broadcastRequestVote() {
 	args := new(RequestVoteArgs)
 	args.Term = rf.currentTerm
 	args.CandidateId = rf.me
-	args.LastLogIndex = rf.getLastLogIndex()
-	args.LastLogTerm = rf.getLastLogTerm()
+	args.LastLogIndex = rf.lastIndex()
+	args.LastLogTerm = rf.lastTerm()
 	rf.mu.Unlock()
 
 	for peer := range rf.peers {
@@ -341,7 +347,7 @@ func (rf *Raft) broadcastHeartbeat() {
 				if args.PrevLogIndex >= baseIndex {
 					args.PrevLogTerm = rf.log[args.PrevLogIndex-baseIndex].Term
 				}
-				if rf.nextIndex[peer] <= rf.getLastLogIndex() {
+				if rf.nextIndex[peer] <= rf.lastIndex() {
 					args.Entries = rf.log[rf.nextIndex[peer]-baseIndex:]
 				}
 				args.LeaderCommit = rf.commitIndex
@@ -371,7 +377,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	if isLeader {
 		term = rf.currentTerm
-		index = rf.getLastLogIndex() + 1
+		index = rf.lastIndex() + 1
 		rf.log = append(rf.log, LogEntry{index, term, command})
 		rf.persist()
 	}

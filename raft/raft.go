@@ -53,7 +53,9 @@ var stmap = [...]string{
 
 const (
 	none = 0
+)
 
+const (
 	logPrefix = "[server-%d (term: %d, state: %s)]: "
 )
 
@@ -70,8 +72,8 @@ type Raft struct {
 	// votes is the count of granted vote in the election
 	votes int
 
-	electionTimeout  time.Duration
-	heartbeatTimeout time.Duration
+	electionTimeout  int
+	heartbeatTimeout int
 
 	// Persistent state on all servers.
 	currentTerm int
@@ -90,7 +92,7 @@ type Raft struct {
 }
 
 func (rf *Raft) randomizeElectionTimeout() {
-	rf.electionTimeout = rf.electionTimeout + time.Duration(rand.Intn(int(rf.electionTimeout)))
+	rf.electionTimeout = rf.electionTimeout + rand.Intn(int(rf.electionTimeout))
 }
 
 func (rf *Raft) GetState() (int, bool) {
@@ -173,8 +175,6 @@ func (rf *Raft) recoverFromSnapshot(snapshot []byte) {
 	dec.Decode(&lastIncludedIndex)
 	dec.Decode(&lastIncludedTerm)
 
-	rf.log.lastApplied = lastIncludedIndex
-	rf.log.commitIndex = lastIncludedIndex
 	rf.compact(lastIncludedIndex, lastIncludedTerm)
 
 	msg := ApplyMsg{UseSnapshot: true, Snapshot: snapshot}
@@ -225,10 +225,10 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	if reply.VoteGranted {
 		rf.votes++
 		if rf.votes > len(rf.peers)/2 {
-			DPrintf(logPrefix+"leader is elected", rf.me, rf.currentTerm, stmap[rf.state.Load().(StateType)])
 			rf.becomeLeader()
 			rf.persist()
 			rf.winElectionCh <- struct{}{}
+			DPrintf(logPrefix+"leader is elected", rf.me, rf.currentTerm, stmap[rf.state.Load().(StateType)])
 		}
 	}
 	return ok
@@ -394,8 +394,6 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	reply.Term = rf.currentTerm
 	if args.LastIncludedIndex > rf.log.commitIndex {
 		rf.compact(args.LastIncludedIndex, args.LastIncludedTerm)
-		rf.log.lastApplied = args.LastIncludedIndex
-		rf.log.commitIndex = args.LastIncludedIndex
 		rf.persister.SaveStateAndSnapshot(rf.hardState(), args.Data)
 
 		msg := ApplyMsg{UseSnapshot: true, Snapshot: args.Data}
@@ -424,6 +422,12 @@ func (rf *Raft) applyLog() {
 func (rf *Raft) compact(index, term int) {
 	DPrintf(logPrefix+"doing compaction at index: %d, term: %d", rf.me, rf.currentTerm, stmap[rf.state.Load().(StateType)], index, term)
 	l := newRaftLog(LogEntry{Index: index, Term: term})
+	if index > l.lastApplied {
+		l.lastApplied = index
+	}
+	if index > l.commitIndex {
+		l.commitIndex = index
+	}
 	if i, found := rf.log.findSamePoint(index, term); found {
 		l.append(rf.log.entrySet(i+1, upper)...)
 	}
@@ -449,13 +453,12 @@ func (rf *Raft) broadcastRequestVote() {
 
 func (rf *Raft) broadcastHeartbeat() {
 	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	head := rf.log.head()
 	snapshot := rf.persister.ReadSnapshot()
-	rf.mu.Unlock()
-
 	for peer := range rf.peers {
 		if peer != rf.me && rf.state.Load().(StateType) == StateLeader {
-			rf.mu.Lock()
 			if rf.nextIndex[peer] > head.Index {
 				args := &AppendEntriesArgs{
 					Term:         rf.currentTerm,
@@ -465,7 +468,6 @@ func (rf *Raft) broadcastHeartbeat() {
 					Entries:      rf.log.entrySet(rf.nextIndex[peer]-head.Index, upper),
 					LeaderCommit: rf.log.commitIndex,
 				}
-				rf.mu.Unlock()
 				go rf.sendAppendEntries(peer, args, &AppendEntriesReply{})
 			} else {
 				args := &InstallSnapshotArgs{
@@ -475,7 +477,6 @@ func (rf *Raft) broadcastHeartbeat() {
 					LastIncludedTerm:  head.Term,
 					Data:              snapshot,
 				}
-				rf.mu.Unlock()
 				go rf.sendInstallSnapshot(peer, args, &InstallSnapshotReply{})
 			}
 		}
@@ -512,7 +513,7 @@ func (rf *Raft) run() {
 			select {
 			case <-rf.grantVoteCh:
 			case <-rf.heartbeatCh:
-			case <-time.After(rf.electionTimeout * time.Millisecond):
+			case <-time.After(time.Duration(rf.electionTimeout) * time.Millisecond):
 				rf.state.Store(StateCandidate)
 			}
 		case StateCandidate:
@@ -527,11 +528,11 @@ func (rf *Raft) run() {
 			case <-rf.heartbeatCh:
 				rf.state.Store(StateFollower)
 			case <-rf.winElectionCh:
-			case <-time.After(rf.electionTimeout * time.Millisecond):
+			case <-time.After(time.Duration(rf.electionTimeout) * time.Millisecond):
 			}
 		case StateLeader:
 			go rf.broadcastHeartbeat()
-			time.Sleep(rf.heartbeatTimeout * time.Millisecond)
+			time.Sleep(time.Duration(rf.heartbeatTimeout) * time.Millisecond)
 		}
 	}
 }
@@ -544,8 +545,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
-	rf.electionTimeout = time.Duration(400)
-	rf.heartbeatTimeout = time.Duration(100)
+	rf.electionTimeout = 400
+	rf.heartbeatTimeout = 100
 	rf.randomizeElectionTimeout()
 
 	rf.becomeFollower(none)

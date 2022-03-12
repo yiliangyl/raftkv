@@ -1,35 +1,52 @@
 package kv
 
 const (
-	OK       = "OK"
-	ErrNoKey = "ErrNoKey"
+	OK           = "OK"
+	ErrNotFound  = "ErrNotFound"
+	ErrNotLeader = "ErrNotLeader"
 )
 
-type Err string
+type ErrMsg string
+
+func (err ErrMsg) OK() bool {
+	return err == OK
+}
+
+func (err ErrMsg) IsErrNotFound() bool {
+	return err == ErrNotFound
+}
+
+func (err ErrMsg) IsErrNotLeader() bool {
+	return err == ErrNotLeader
+}
+
+type CommandType string
+
+const (
+	GetType    CommandType = "get"
+	PutType    CommandType = "put"
+	AppendType CommandType = "append"
+)
 
 type PutAppendArgs struct {
-	Key     string
-	Value   string
-	Command string // "put" or "append"
-
+	Key       string
+	Value     string
+	Command   CommandType
 	ClientId  int64
 	RequestId int64
 }
 
 type PutAppendReply struct {
-	WrongLeader bool
-	Err         Err
+	ErrMsg ErrMsg
 }
 
 type GetArgs struct {
-	Key string
-
+	Key       string
 	ClientId  int64
 	RequestId int64
 }
 
 type GetReply struct {
-	WrongLeader bool
-	Err         Err
-	Value       string
+	ErrMsg ErrMsg
+	Value  string
 }

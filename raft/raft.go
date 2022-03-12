@@ -33,8 +33,8 @@ type ApplyMsg struct {
 	Command      interface{}
 	CommandIndex int
 
-	UseSnapshot bool
-	Snapshot    []byte
+	NeedSnapshot bool
+	Snapshot     []byte
 }
 
 type StateType int
@@ -51,12 +51,16 @@ var stmap = [...]string{
 	"StateLeader",
 }
 
+func (st StateType) String() string {
+	return stmap[uint64(st)]
+}
+
 const (
 	none = 0
 )
 
 const (
-	logPrefix = "[server-%d (term: %d, state: %s)]: "
+	logPrefix = "[raft-%d (term: %d, state: %s)]: "
 )
 
 // Raft is the consensus module.
@@ -91,6 +95,10 @@ type Raft struct {
 	heartbeatCh   chan struct{}
 }
 
+func (rf *Raft) quorum() int {
+	return len(rf.peers)/2 + 1
+}
+
 func (rf *Raft) randomizeElectionTimeout() {
 	rf.electionTimeout = rf.electionTimeout + rand.Intn(int(rf.electionTimeout))
 }
@@ -115,8 +123,8 @@ func (rf *Raft) persist() {
 	rf.persister.SaveRaftState(rf.hardState())
 }
 
-// initialize persistent state.
-func (rf *Raft) initialize(data []byte) {
+// initialState peer state.
+func (rf *Raft) initialState(data []byte) {
 	if len(data) == 0 {
 		return
 	}
@@ -126,6 +134,25 @@ func (rf *Raft) initialize(data []byte) {
 	dec.Decode(&rf.currentTerm)
 	dec.Decode(&rf.votedFor)
 	dec.Decode(&rf.log.entries)
+
+	rf.applySnapshot(rf.persister.ReadSnapshot())
+}
+
+func (rf *Raft) applySnapshot(snapshot []byte) {
+	if len(snapshot) == 0 {
+		return
+	}
+
+	var lastIncludedIndex, lastIncludedTerm int
+	buf := bytes.NewBuffer(snapshot)
+	dec := labgob.NewDecoder(buf)
+	dec.Decode(&lastIncludedIndex)
+	dec.Decode(&lastIncludedTerm)
+
+	rf.compact(lastIncludedIndex, lastIncludedTerm)
+
+	msg := ApplyMsg{NeedSnapshot: true, Snapshot: snapshot}
+	rf.applyCh <- msg
 }
 
 // raftHardState returns the encoding Raft persistent
@@ -145,7 +172,7 @@ func (rf *Raft) CreateSnapshot(snapshot []byte, index int) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	DPrintf(logPrefix+"create snapshot at index: %d", rf.me, rf.currentTerm, stmap[rf.state.Load().(StateType)], index)
+	DPrintf(logPrefix+"create snapshot at index: %d", rf.me, rf.currentTerm, rf.state.Load().(StateType).String(), index)
 	head := rf.log.head()
 	lastIndex := rf.log.lastLogIndex()
 	if index <= head.Index || index > lastIndex {
@@ -162,23 +189,6 @@ func (rf *Raft) CreateSnapshot(snapshot []byte, index int) {
 	snapshot = append(buf.Bytes(), snapshot...)
 
 	rf.persister.SaveStateAndSnapshot(rf.hardState(), snapshot)
-}
-
-func (rf *Raft) recoverFromSnapshot(snapshot []byte) {
-	if len(snapshot) == 0 {
-		return
-	}
-
-	var lastIncludedIndex, lastIncludedTerm int
-	buf := bytes.NewBuffer(snapshot)
-	dec := labgob.NewDecoder(buf)
-	dec.Decode(&lastIncludedIndex)
-	dec.Decode(&lastIncludedTerm)
-
-	rf.compact(lastIncludedIndex, lastIncludedTerm)
-
-	msg := ApplyMsg{UseSnapshot: true, Snapshot: snapshot}
-	rf.applyCh <- msg
 }
 
 func (rf *Raft) becomeFollower(term int) {
@@ -224,11 +234,11 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 	if reply.VoteGranted {
 		rf.votes++
-		if rf.votes > len(rf.peers)/2 {
+		if rf.votes >= rf.quorum() {
 			rf.becomeLeader()
 			rf.persist()
 			rf.winElectionCh <- struct{}{}
-			DPrintf(logPrefix+"leader is elected", rf.me, rf.currentTerm, stmap[rf.state.Load().(StateType)])
+			DPrintf(logPrefix+"leader is elected", rf.me, rf.currentTerm, rf.state.Load().(StateType).String())
 		}
 	}
 	return ok
@@ -274,7 +284,7 @@ func (rf *Raft) leaderCommit() bool {
 	if n > rf.log.commitIndex {
 		if rf.log.term(n) == rf.currentTerm {
 			rf.log.commitIndex = n
-			DPrintf(logPrefix+"new commit index: %d", rf.me, rf.currentTerm, stmap[rf.state.Load().(StateType)], n)
+			DPrintf(logPrefix+"new commit index: %d", rf.me, rf.currentTerm, rf.state.Load().(StateType).String(), n)
 			go rf.broadcastHeartbeat()
 			return true
 		}
@@ -396,7 +406,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		rf.compact(args.LastIncludedIndex, args.LastIncludedTerm)
 		rf.persister.SaveStateAndSnapshot(rf.hardState(), args.Data)
 
-		msg := ApplyMsg{UseSnapshot: true, Snapshot: args.Data}
+		msg := ApplyMsg{NeedSnapshot: true, Snapshot: args.Data}
 		rf.applyCh <- msg
 	}
 }
@@ -420,7 +430,7 @@ func (rf *Raft) applyLog() {
 
 // discard old log entries up to lastIncludedIndex.
 func (rf *Raft) compact(index, term int) {
-	DPrintf(logPrefix+"doing compaction at index: %d, term: %d", rf.me, rf.currentTerm, stmap[rf.state.Load().(StateType)], index, term)
+	DPrintf(logPrefix+"doing compaction at index: %d, term: %d", rf.me, rf.currentTerm, rf.state.Load().(StateType).String(), index, term)
 	l := newRaftLog(LogEntry{Index: index, Term: term})
 	if index > l.lastApplied {
 		l.lastApplied = index
@@ -497,7 +507,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		term = rf.currentTerm
 		proposal := LogEntry{index, term, command}
 		rf.log.append(proposal)
-		DPrintf(logPrefix+"propose log: %+v", rf.me, rf.currentTerm, stmap[rf.state.Load().(StateType)], proposal)
+		DPrintf(logPrefix+"propose log: %+v", rf.me, rf.currentTerm, rf.state.Load().(StateType).String(), proposal)
 
 		rf.matchIndex[rf.me] = rf.log.lastLogIndex()
 		rf.persist()
@@ -558,8 +568,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.heartbeatCh = make(chan struct{}, 500)
 
 	// Initialization or crash recovery.
-	rf.initialize(persister.ReadRaftState())
-	rf.recoverFromSnapshot(persister.ReadSnapshot())
+	rf.initialState(persister.ReadRaftState())
 
 	go rf.run()
 

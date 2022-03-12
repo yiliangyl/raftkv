@@ -50,7 +50,7 @@ func (ck *Clerk) Get(key string) string {
 		for _, srv := range ck.servers {
 			var reply GetReply
 			ok := srv.Call("KVServer.Get", &args, &reply)
-			if ok && !reply.WrongLeader {
+			if ok && !reply.ErrMsg.IsErrNotLeader() {
 				return reply.Value
 			}
 		}
@@ -62,11 +62,11 @@ func (ck *Clerk) Get(key string) string {
 //
 // you can send an RPC with code like this:
 // ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
-func (ck *Clerk) putAppend(key string, value string, op string) {
+func (ck *Clerk) putAppend(key string, value string, command CommandType) {
 	args := PutAppendArgs{
 		Key:      key,
 		Value:    value,
-		Command:  op,
+		Command:  command,
 		ClientId: ck.clientId,
 	}
 	ck.mu.Lock()
@@ -78,7 +78,7 @@ func (ck *Clerk) putAppend(key string, value string, op string) {
 		for _, srv := range ck.servers {
 			var reply PutAppendReply
 			ok := srv.Call("KVServer.PutAppend", &args, &reply)
-			if ok && !reply.WrongLeader {
+			if ok && !reply.ErrMsg.IsErrNotLeader() {
 				return
 			}
 		}
@@ -87,8 +87,8 @@ func (ck *Clerk) putAppend(key string, value string, op string) {
 }
 
 func (ck *Clerk) Put(key string, value string) {
-	ck.putAppend(key, value, "put")
+	ck.putAppend(key, value, PutType)
 }
 func (ck *Clerk) Append(key string, value string) {
-	ck.putAppend(key, value, "append")
+	ck.putAppend(key, value, AppendType)
 }

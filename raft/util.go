@@ -4,7 +4,7 @@ import "log"
 
 const (
 	// Debug Debugging mode
-	Debug = false
+	Debug = true
 )
 
 func DPrintf(format string, a ...interface{}) {
